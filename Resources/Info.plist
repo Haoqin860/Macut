@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>CFBundleIdentifier</key><string>app.macut.Macut</string>
+    <key>CFBundleName</key><string>Macut</string>
+    <key>CFBundleDisplayName</key><string>Macut</string>
+    <key>CFBundleExecutable</key><string>Macut</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>0.1.1</string>
+    <key>CFBundleVersion</key><string>2</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>LSUIElement</key><true/>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>NSPrincipalClass</key><string>NSApplication</string>
+    <key>NSDesktopFolderUsageDescription</key><string>仅用于为你复制的桌面图片文件生成本地预览。</string>
+    <key>NSDocumentsFolderUsageDescription</key><string>仅用于为你复制的文稿图片文件生成本地预览。</string>
+    <key>NSDownloadsFolderUsageDescription</key><string>仅用于为你复制的下载图片文件生成本地预览。</string>
+    <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
+    <key>CFBundleLocalizations</key><array><string>zh_CN</string><string>en</string></array>
+</dict></plist>

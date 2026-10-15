@@ -1,0 +1,350 @@
+import AppKit
+import ClipboardCore
+import Combine
+import ImageIO
+
+/// Reading URL objects obtains the pasteboard's normal file-access grants when available.
+private final class PasteboardFileAccess {
+    let urls: [URL]
+    private let scoped: [URL]
+    init(_ urls: [URL]) {
+        self.urls = urls
+        scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
+    }
+    deinit { scoped.forEach { $0.stopAccessingSecurityScopedResource() } }
+}
+
+enum ClipFilter: String, CaseIterable {
+    case all = "全部", text = "文字", image = "图片", favorite = "收藏"
+    var symbol: String {
+        switch self {
+        case .all: return "square.stack"
+        case .text: return "text.alignleft"
+        case .image: return "photo"
+        case .favorite: return "star"
+        }
+    }
+}
+
+final class AppModel: ObservableObject {
+    let preferences: Preferences
+    let dataDirectory: URL
+    @Published var records: [ClipRecord] = []
+    @Published var query = ""
+    @Published var filter: ClipFilter = .all
+    @Published var selectedID: UUID?
+    @Published var paused = false
+    @Published var isLoading = true
+    @Published var message: String?
+    @Published var storageError: String?
+    @Published var accessibilityGranted = AXIsProcessTrusted()
+    @Published var previewImage: NSImage?
+    @Published var previewLoading = false
+    @Published var panelSession = UUID()
+    var onPasteRequested: ((ClipRecord, Bool) -> Void)?
+    var onSettingsRequested: (() -> Void)?
+    var onCloseRequested: (() -> Void)?
+    var onPreviewRequested: (() -> Void)?
+    private let worker = DispatchQueue(label: "app.macut.storage", qos: .userInitiated)
+    private var store: HistoryStore?
+    private var timer: Timer?
+    private var lastChangeCount: Int
+    private let board = NSPasteboard.general
+    private let imageCache = NSCache<NSString, NSImage>()
+    private var messageTask: DispatchWorkItem?
+    private let monitoringEnabled: Bool
+    static let ownMarker = NSPasteboard.PasteboardType("app.macut.internal")
+    static let supported: [NSPasteboard.PasteboardType] = [.fileURL, .png, .tiff, .string, .rtf, .html, .rtfd, .URL]
+
+    var visibleRecords: [ClipRecord] {
+        records.filter { record in
+            let kindMatches: Bool
+            switch filter {
+            case .all: kindMatches = true
+            case .text: kindMatches = record.kind == .text || record.kind == .link
+            case .image: kindMatches = record.hasImagePreview
+            case .favorite: kindMatches = record.isFavorite
+            }
+            return kindMatches && record.matches(query)
+        }.sorted {
+            if $0.isFavorite != $1.isFavorite { return $0.isFavorite }
+            return $0.lastUsedAt > $1.lastUsedAt
+        }
+    }
+
+    var selectedRecord: ClipRecord? { visibleRecords.first { $0.id == selectedID } }
+    var totalBytes: Int { records.reduce(0) { $0 + $1.byteCount } }
+
+    init(preferences: Preferences, directory: URL? = nil, monitoringEnabled: Bool = true) {
+        self.preferences = preferences
+        self.monitoringEnabled = monitoringEnabled
+        dataDirectory = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Macut", isDirectory: true)
+        lastChangeCount = board.changeCount
+        imageCache.countLimit = 80
+        worker.async { [self] in
+            do {
+                store = try HistoryStore(directory: dataDirectory)
+                try store?.restoreImageFilePreviews()
+                try store?.prune(limit: preferences.historyLimit, maxBytes: preferences.maxStorageMB * 1024 * 1024,
+                                 retentionDays: preferences.retentionDays)
+                let loaded = store?.records ?? []
+                DispatchQueue.main.async {
+                    self.records = loaded
+                    self.isLoading = false
+                    self.normalizeSelection()
+                    self.startMonitoring()
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.storageError = "历史记录读取失败，已停止记录以保护原数据：\(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func startMonitoring() {
+        guard monitoringEnabled else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in self?.checkClipboard() }
+        if let timer { RunLoop.main.add(timer, forMode: .common) }
+    }
+
+    func checkClipboard() {
+        guard board.changeCount != lastChangeCount else { return }
+        let observedCount = board.changeCount
+        lastChangeCount = observedCount
+        guard !paused, storageError == nil else { return }
+        let types = board.types ?? []
+        let ignored = [Self.ownMarker.rawValue, "org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType",
+                       "org.nspasteboard.AutoGeneratedType", "com.agilebits.onepassword", "com.apple.uikit.pasteboard.concealed"]
+        guard !types.contains(where: { ignored.contains($0.rawValue) }) else { return }
+        let source = NSWorkspace.shared.frontmostApplication
+        guard source?.bundleIdentifier != Bundle.main.bundleIdentifier,
+              !preferences.excludedBundleIDs.contains(source?.bundleIdentifier ?? "") else { return }
+        let urls = board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        let fileAccess = PasteboardFileAccess(urls)
+        var byteCount = 0
+        var snapshot: [[CapturedRepresentation]] = []
+        for item in board.pasteboardItems ?? [] {
+            var reps: [CapturedRepresentation] = []
+            for type in Self.supported where item.types.contains(type) {
+                // TIFF can be enormous. Keep PNG when both representations are offered.
+                if type == .tiff && item.types.contains(.png) { continue }
+                guard let data = item.data(forType: type) else { continue }
+                byteCount += data.count
+                guard byteCount <= 64 * 1024 * 1024 else {
+                    notify("这条内容超过 64 MB，已跳过记录")
+                    return
+                }
+                reps.append(CapturedRepresentation(type: type.rawValue, data: data))
+            }
+            if !reps.isEmpty { snapshot.append(reps) }
+        }
+        // A delayed data provider may change the pasteboard while being read.
+        guard board.changeCount == observedCount, !snapshot.isEmpty else { return }
+        let fileURLs = snapshot.flatMap { $0 }.filter { $0.type == NSPasteboard.PasteboardType.fileURL.rawValue }
+            .compactMap { String(data: $0.data, encoding: .utf8) }.compactMap(URL.init(string:))
+        let hasImage = snapshot.flatMap { $0 }.contains { $0.type == "public.png" || $0.type == "public.tiff" }
+        let text = board.string(forType: .string) ?? board.string(forType: .URL) ?? ""
+        let cleanText = text.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) || $0 == "\n" || $0 == "\t" }
+        let searchable = String(String.UnicodeScalarView(cleanText).prefix(60_000))
+        let kind: ClipKind = !fileURLs.isEmpty ? .files : hasImage ? .image : isWebURL(text) ? .link : .text
+        let firstLine = searchable.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        let title: String
+        switch kind {
+        case .files: title = fileURLs.count == 1 ? fileURLs[0].lastPathComponent : "\(fileURLs.count) 个文件"
+        case .image: title = "来自\(source?.localizedName ?? "应用")的图片"
+        default: title = String(firstLine.prefix(100)).trimmingCharacters(in: .whitespaces)
+        }
+        let capture = CapturedClip(kind: kind, title: title.isEmpty ? "未命名内容" : title,
+                                   text: kind == .files ? fileURLs.map(\.path).joined(separator: "\n") : searchable,
+                                   sourceName: source?.localizedName ?? "未知应用", sourceBundleID: source?.bundleIdentifier,
+                                   items: snapshot)
+        mutateStore { store in
+            try withExtendedLifetime(fileAccess) {
+                try store.add(capture)
+                try store.prune(limit: self.preferences.historyLimit,
+                                maxBytes: self.preferences.maxStorageMB * 1024 * 1024,
+                                retentionDays: self.preferences.retentionDays)
+            }
+        }
+    }
+
+    private func isWebURL(_ text: String) -> Bool {
+        guard !text.contains("\n"), let url = URL(string: text.trimmingCharacters(in: .whitespaces)),
+              let scheme = url.scheme?.lowercased() else { return false }
+        return (scheme == "https" || scheme == "http") && url.host != nil
+    }
+
+    func mutateStore(_ mutation: @escaping (HistoryStore) throws -> Void) {
+        worker.async { [self] in
+            guard let store else { return }
+            do {
+                try mutation(store)
+                let updated = store.records
+                DispatchQueue.main.async {
+                    self.records = updated
+                    self.normalizeSelection()
+                }
+            } catch {
+                DispatchQueue.main.async { self.notify("保存失败：\(error.localizedDescription)", persistent: true) }
+            }
+        }
+    }
+
+    func normalizeSelection() {
+        if !visibleRecords.contains(where: { $0.id == selectedID }) { selectedID = visibleRecords.first?.id }
+    }
+
+    func moveSelection(_ offset: Int) {
+        let items = visibleRecords
+        guard !items.isEmpty else { return }
+        let current = items.firstIndex { $0.id == selectedID } ?? 0
+        selectedID = items[min(max(current + offset, 0), items.count - 1)].id
+    }
+
+    func selectFilter(_ index: Int) {
+        let all = ClipFilter.allCases
+        filter = all[(index % all.count + all.count) % all.count]
+        normalizeSelection()
+    }
+
+    func toggleFavorite(_ record: ClipRecord) {
+        mutateStore { try $0.setFavorite(record.id, value: !record.isFavorite) }
+    }
+
+    func delete(_ record: ClipRecord) {
+        imageCache.removeObject(forKey: record.id.uuidString as NSString)
+        mutateStore { try $0.remove([record.id]) }
+    }
+
+    func clearHistory(includingFavorites: Bool = false) {
+        mutateStore { store in
+            let ids = Set(store.records.filter { includingFavorites || !$0.isFavorite }.map(\.id))
+            try store.remove(ids)
+        }
+        imageCache.removeAllObjects()
+    }
+
+    func applyRetention() {
+        let limit = preferences.historyLimit
+        let bytes = preferences.maxStorageMB * 1024 * 1024
+        let days = preferences.retentionDays
+        mutateStore { try $0.prune(limit: limit, maxBytes: bytes, retentionDays: days) }
+    }
+
+    func pasteSelected(plainText: Bool = false) {
+        if let record = selectedRecord { onPasteRequested?(record, plainText) }
+    }
+
+    func preparePaste(_ record: ClipRecord, plainText: Bool, completion: @escaping (Result<[[CapturedRepresentation]], Error>) -> Void) {
+        worker.async { [self] in
+            do {
+                guard let store else { throw CocoaError(.fileReadUnknown) }
+                var items: [[CapturedRepresentation]] = []
+                for item in record.items {
+                    var reps: [CapturedRepresentation] = []
+                    for rep in item {
+                        if plainText && rep.type != NSPasteboard.PasteboardType.string.rawValue { continue }
+                        let data = try Data(contentsOf: store.payloadURL(for: record, fileName: rep.fileName))
+                        reps.append(CapturedRepresentation(type: rep.type, data: data))
+                    }
+                    if !reps.isEmpty { items.append(reps) }
+                }
+                guard !items.isEmpty else { throw CocoaError(.fileReadUnknown) }
+                DispatchQueue.main.async { completion(.success(items)) }
+            } catch { DispatchQueue.main.async { completion(.failure(error)) } }
+        }
+    }
+
+    func markInternalCopy() { lastChangeCount = board.changeCount }
+
+    func thumbnail(_ record: ClipRecord) -> NSImage? {
+        if let cached = imageCache.object(forKey: record.id.uuidString as NSString) { return cached }
+        guard let name = record.thumbnailName else { return nil }
+        let url = dataDirectory.appendingPathComponent("Blobs/\(record.id.uuidString)/\(name)")
+        guard let image = NSImage(contentsOf: url) else { return nil }
+        imageCache.setObject(image, forKey: record.id.uuidString as NSString)
+        return image
+    }
+
+    func loadPreview(_ record: ClipRecord?) {
+        previewImage = nil
+        previewLoading = false
+        guard let record, record.hasImagePreview else { return }
+        previewImage = thumbnail(record)
+        previewLoading = true
+        worker.async { [self] in
+            var image: NSImage?
+            let raw = record.items.flatMap({ $0 }).first(where: { $0.type == "public.png" || $0.type == "public.tiff" })
+            let imageURL = record.previewName.flatMap { store?.payloadURL(for: record, fileName: $0) }
+                ?? raw.flatMap { store?.payloadURL(for: record, fileName: $0.fileName) }
+                ?? store?.imageFileURL(for: record)
+            if let imageURL, let source = CGImageSourceCreateWithURL(imageURL as CFURL, nil),
+               let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0,
+                    [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 1800,
+                     kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) {
+                image = NSImage(cgImage: cgImage, size: .zero)
+            }
+            DispatchQueue.main.async {
+                guard self.selectedID == record.id else { return }
+                self.previewImage = image ?? self.thumbnail(record)
+                self.previewLoading = false
+            }
+        }
+    }
+
+    func authorizeImageFilePreview(_ record: ClipRecord) {
+        worker.async { [self] in
+            guard let originalURL = store?.imageFileURL(for: record) else { return }
+            DispatchQueue.main.async {
+                let picker = NSOpenPanel()
+                picker.title = "允许预览这张图片"
+                picker.message = "请选择这条记录对应的原图片。Macut 只读取你选择的文件并缓存预览，不扫描其他文件或聊天记录。"
+                picker.directoryURL = originalURL.deletingLastPathComponent()
+                picker.nameFieldStringValue = originalURL.lastPathComponent
+                picker.canChooseDirectories = false
+                picker.allowsMultipleSelection = false
+                picker.prompt = "允许预览"
+                NSApp.activate(ignoringOtherApps: true)
+                guard picker.runModal() == .OK, let selected = picker.url else { return }
+                guard selected.standardizedFileURL == originalURL.standardizedFileURL else {
+                    self.notify("请选择这条记录对应的原图片")
+                    return
+                }
+                let access = PasteboardFileAccess([selected])
+                self.worker.async {
+                    do {
+                        try withExtendedLifetime(access) { try self.store?.restoreImageFilePreview(record.id, authorizedURL: selected) }
+                        let updated = self.store?.records ?? []
+                        DispatchQueue.main.async {
+                            self.imageCache.removeObject(forKey: record.id.uuidString as NSString)
+                            self.records = updated
+                            self.loadPreview(self.selectedRecord)
+                        }
+                    } catch {
+                        DispatchQueue.main.async { self.notify("无法读取图片。原文件可能已移除，或仍受系统访问限制。") }
+                    }
+                }
+            }
+        }
+    }
+
+    func notify(_ text: String, persistent: Bool = false) {
+        messageTask?.cancel()
+        message = text
+        guard !persistent else { return }
+        let task = DispatchWorkItem { [weak self] in self?.message = nil }
+        messageTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: task)
+    }
+
+    func requestAccessibility() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        accessibilityGranted = AXIsProcessTrustedWithOptions(options)
+        if !accessibilityGranted {
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+        }
+    }
+}

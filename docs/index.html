@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Macut：轻巧优雅的原生 Mac 剪贴板。文字、图片与链接，本地保存，快捷键随时找回。">
+  <meta property="og:title" content="Macut — 随手复制，随时找回">
+  <meta property="og:description" content="一个安静、顺手的原生 Mac 剪贴板工具。文字、图片与链接，留在你的 Mac。">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://haoqin860.github.io/Macut/">
+  <meta property="og:image" content="https://haoqin860.github.io/Macut/assets/hero-art.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="referrer" content="no-referrer">
+  <title>Macut — 随手复制，随时找回</title>
+  <link rel="icon" href="assets/app-icon.png" type="image/png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+  <header class="site-header wrap">
+    <a class="brand" href="#" aria-label="Macut 首页"><img src="assets/app-icon.png" width="37" height="37" alt=""><span>Macut</span></a>
+    <nav aria-label="主导航"><a href="#features">功能</a><a href="#shortcuts">快捷键</a><a href="#privacy">隐私</a></nav>
+    <a class="nav-source" href="https://github.com/Haoqin860/Macut" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+  </header>
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="status-dot"></span>为你的 Mac，留住每次复制</p>
+        <h1 id="hero-title">复制的灵感，<br><span>随时找回。</span></h1>
+        <p class="hero-description">刚才的文字、那张图片、稍后要用的链接。<br class="desktop-break">按下快捷键，让它们重新回到手边。</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="https://github.com/Haoqin860/Macut/releases/download/v0.1.1/Macut-0.1.1-arm64.dmg"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/></svg>下载 Macut <span class="button-arrow" aria-hidden="true">↗</span></a>
+          <a class="button button-secondary" href="https://github.com/Haoqin860/Macut" target="_blank" rel="noopener noreferrer">查看源码 <span aria-hidden="true">↗</span></a>
+        </div>
+        <p class="requirements">v0.1.1 <span>·</span> macOS 14+ <span>·</span> Apple Silicon</p>
+        <div class="quick-invoke"><span>下一次需要时，只要</span><kbd>⌘</kbd><kbd>⇧</kbd><kbd>V</kbd></div>
+      </div>
+      <div class="hero-product">
+        <div class="demo-window" aria-label="Macut 交互演示，仅含虚构示例">
+          <div class="demo-title"><span class="paper-mark" aria-hidden="true"></span><strong>Macut</strong><span class="demo-tagline">随手复制，随时找回</span><kbd>⌘⇧V</kbd></div>
+          <label class="demo-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="demo-search" type="search" placeholder="试试搜索「灵感」…" autocomplete="off" aria-label="搜索虚构示例"></label>
+          <div class="demo-filters" role="tablist" aria-label="演示内容分类">
+            <button type="button" role="tab" data-filter="all" aria-selected="true">全部</button>
+            <button type="button" role="tab" data-filter="text" aria-selected="false">文字</button>
+            <button type="button" role="tab" data-filter="image" aria-selected="false">图片</button>
+            <button type="button" role="tab" data-filter="favorite" aria-selected="false">收藏</button>
+            <span id="demo-count">4 条</span>
+          </div>
+          <div class="demo-body">
+            <div class="demo-list" id="demo-list" aria-label="示例历史记录"></div>
+            <div class="demo-detail" id="demo-detail" aria-live="polite"></div>
+          </div>
+          <div class="demo-footer"><span><kbd>↑↓</kbd> 选择</span><span><kbd>↩</kbd> 使用</span><span><span class="tiny-dot"></span> 本地保存</span></div>
+        </div>
+        <p class="demo-caption"><span aria-hidden="true">↖</span> 可以试试搜索与分类。交互演示使用虚构内容，插画由 GPT 生成。</p>
+      </div>
+    </section>
+
+    <section class="workflow wrap" id="features" aria-label="使用步骤">
+      <div><span class="step-number">01</span><div><h2>照常复制</h2><p>文字、图片、链接，顺手留下。</p></div><kbd>⌘C</kbd></div>
+      <div><span class="step-number">02</span><div><h2>随时呼出</h2><p>按快捷键，直接输入就能找。</p></div><kbd>⌘⇧V</kbd></div>
+      <div><span class="step-number">03</span><div><h2>回到手边</h2><p>选中内容，继续原来的工作。</p></div><kbd>↩</kbd></div>
+    </section>
+
+    <section class="details wrap" aria-labelledby="details-title">
+      <div class="section-intro"><p class="eyebrow">少一点来回，多一点顺手</p><h2 id="details-title">好工具，让注意力<br>留在正在做的事上。</h2><p>原生 SwiftUI 与 AppKit 构建。<br>常驻菜单栏，需要时出现，用完就收起。</p></div>
+      <div class="feature-lines">
+        <article><span class="feature-symbol" aria-hidden="true">⌕</span><div><h3>文字与图片，都有自己的位置</h3><p>左侧快速浏览，右侧看清详情。长文字可阅读，图片可放大，原始内容单独保存。</p></div></article>
+        <article><span class="feature-symbol" aria-hidden="true">☆</span><div><h3>常用内容，收藏起来</h3><p>把常用回复、链接和图片留在前面。普通历史按你设置的时间、条数和容量自动整理。</p></div></article>
+        <article><span class="feature-symbol" aria-hidden="true">⌘</span><div><h3>键盘就能完成的流畅</h3><p>呼出、搜索、选择，一气呵成。自定义全局快捷键，让它适应你的习惯。</p></div></article>
+      </div>
+    </section>
+
+    <section class="privacy-section" id="privacy" aria-labelledby="privacy-title">
+      <div class="wrap privacy-inner"><div class="privacy-art" aria-hidden="true"><div class="paper-sheet sheet-back"></div><div class="paper-sheet sheet-front"><svg viewBox="0 0 48 48"><path d="M13 23v-7a11 11 0 0 1 22 0v7M11 23h26v20H11z"/><circle cx="24" cy="32" r="2"/><path d="M24 34v4"/></svg></div></div><div><p class="eyebrow">只在这台 Mac</p><h2 id="privacy-title">复制的内容，<br>留给自己。</h2><p>不需要账号，没有云端上传或遥测。<br>支持暂停记录、排除应用，数据保存在本机。</p><p class="privacy-note">本地历史未做应用层加密；未标记的敏感内容仍可能被记录。<br>请按自己的使用场景设置排除列表。</p><a class="text-link" href="https://github.com/Haoqin860/Macut/blob/main/PRIVACY.md">阅读完整隐私说明 <span aria-hidden="true">↗</span></a></div></div>
+    </section>
+
+    <section class="shortcuts wrap" id="shortcuts" aria-labelledby="shortcuts-title">
+      <div><p class="eyebrow">不用离开键盘</p><h2 id="shortcuts-title">几个按键，<br>少一点打断。</h2></div>
+      <dl class="shortcut-grid"><div><dt>呼出 / 收起</dt><dd><kbd>⌘⇧V</kbd></dd></div><div><dt>选择记录</dt><dd><kbd>↑</kbd> <kbd>↓</kbd></dd></div><div><dt>使用内容</dt><dd><kbd>↩</kbd></dd></div><div><dt>纯文本使用</dt><dd><kbd>⌘↩</kbd></dd></div><div><dt>收藏 / 取消收藏</dt><dd><kbd>⌘P</kbd></dd></div><div><dt>快速使用前九条</dt><dd><kbd>⌘1–9</kbd></dd></div></dl>
+    </section>
+
+    <section class="download-section wrap" aria-labelledby="download-title"><img src="assets/app-icon.png" width="76" height="76" alt="Macut 图标" loading="lazy"><h2 id="download-title">让下一次复制，<br class="mobile-break">有处可寻。</h2><a class="button button-primary" href="https://github.com/Haoqin860/Macut/releases/download/v0.1.1/Macut-0.1.1-arm64.dmg">下载 Macut <span aria-hidden="true">↗</span></a><p>免费 · MIT 开源 · macOS 14+ · Apple Silicon</p><details><summary>安装与权限说明</summary><p>打开 DMG，将 Macut 拖入「应用程序」。这是早期公开版本，使用本机签名，尚未通过 Apple 公证。如果系统阻止打开，请先核对 GitHub Release 来源与 SHA-256，再按系统提示处理。自动粘贴需要你授予辅助功能权限；未授权时，可选中复制后手动按 ⌘V 粘贴。</p><a href="https://github.com/Haoqin860/Macut/blob/main/docs/guide.md">查看完整安装说明 ↗</a></details></section>
+  </main>
+  <footer class="site-footer wrap"><a class="brand" href="#"><span class="paper-mark" aria-hidden="true"></span><span>Macut</span></a><p>随手复制，随时找回。</p><div><a href="https://github.com/Haoqin860/Macut">GitHub</a><a href="https://github.com/Haoqin860/Macut/releases">Releases</a><a href="https://github.com/Haoqin860/Macut/blob/main/PRIVACY.md">隐私</a><span>© 2026 Macut contributors</span></div></footer>
+</body>
+</html>
